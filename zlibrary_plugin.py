@@ -27,7 +27,7 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(leve
 logger = logging.getLogger(__name__)
 
 
-def custom_browser(url: str, payload: dict = None) -> dict:
+def api_request(url: str, payload: dict = None) -> dict:
     data = None
     if payload is not None:
         data = urllib.parse.urlencode(payload).encode('utf-8')
@@ -59,7 +59,7 @@ def search_libgen(query, max_results:int, timeout=60):
     while current_page<=total_pages and len(results)<max_results:
         try:
             url = f'{BASE_API_URL}/book/search'
-            json_response = custom_browser(url, payload)
+            json_response = api_request(url, payload)
             current_page=json_response["pagination"]["current"]
             total_pages=json_response["pagination"]["total_pages"]
             for book in json_response["books"]:
@@ -99,7 +99,7 @@ class ZLibraryStorePlugin(BasicStoreConfig, StorePlugin):
 
     @staticmethod
     def get_details(search_result: SearchResult, retries=3):
-        formats_json = custom_browser(search_result.formats)
+        formats_json = api_request(search_result.formats)
         formats = []
         for format in formats_json["books"]:
             format_extension = format["extension"]
