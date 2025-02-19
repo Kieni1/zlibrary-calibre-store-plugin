@@ -24,6 +24,9 @@ import ssl
 BASE_URL = "https://libgen.gs"
 USER_AGENT = "Mozilla/5.0 (Windows NT 6.1; Trident/7.0; rv:11.0) like Gecko"
 
+BASE_API_URL = "https://z-lib.gl/eapi"
+BASE_WEB_URL = "https://z-library.sk"
+
 # Declare global variables at the module level
 title_index = None
 image_index = None
@@ -56,16 +59,11 @@ def custom_browser(url: str, payload: dict = None) -> dict:
 #####################################################################
 # Plug-in base class
 #####################################################################
-def search_libgen(query, max_results=10, timeout=60):
-    res = "25" if max_results <= 25 else "50" if max_results <= 50 else "100"
-    encoded_query = urllib.parse.quote(query)
-    libgen_url = f"{BASE_URL}/index.php?req={encoded_query}&columns[]=t&columns[]=a&columns[]=s&columns[]=y&columns[]=p&columns[]=i&objects[]=f&objects[]=e&objects[]=s&objects[]=a&objects[]=p&objects[]=w&topics[]=l&topics[]=c&topics[]=f&topics[]=a&topics[]=m&topics[]=r&topics[]=s&res={res}&filesuns=all&covers=on"
+def search_libgen(query, max_results:int, timeout=60):
+    results = []
+    total_pages = 1
+    current_page = 1
 
-    zlibrary_url = f"https://z-library.sk/s/{query}?"
-
-    zlibrary_api = "https://z-lib.gl/eapi/book/search"
-
-    encoded_query = urllib.parse.quote(query)
     payload = {
         "message": query,
         "order": "popular",
@@ -73,46 +71,38 @@ def search_libgen(query, max_results=10, timeout=60):
         "extensions[]": "null"
     }
 
-    try:
-        results_Zlib = []
-        json_response = custom_browser(zlibrary_api, payload)
-        for book in json_response["books"]:
-            s = SearchResult()
-            s.store_name = "Z-Library"
-            s.title = book["title"]
-            s.author = book["author"]
-            s.cover_url = book["cover"]
-            s.drm = 2
-            s.formats = f"https://z-lib.gl/eapi/book/{book["id"]}/{book["hash"]}/formats"
-            s.detail_item = f'https://z-library.sk{book["href"]}'
-
-            results_Zlib.append(s)
-        return results_Zlib
-
-    except Exception as e:
-        logger.error(e)
-
-    print("asdf")
-
-    br = browser(user_agent=USER_AGENT)
-    raw = br.open(libgen_url).read()
-    soup = BeautifulSoup(raw, "html5lib")
-    extract_indices(soup)
-    trs = soup.select('table[class="table table-striped"] > tbody > tr')
-    # map the trs to search results, filter out items that dont have a title or author, and limit it to max_results size
-    results = []
-    for tr in trs:
+    while current_page<=total_pages and len(results)<max_results:
         try:
-            result = build_search_result(tr)
-            if result.title and result.author:
-                results.append(result)
+            url = f'{BASE_API_URL}/book/search'
+            json_response = custom_browser(url, payload)
+            current_page=json_response["pagination"]["current"]
+            total_pages=json_response["pagination"]["total_pages"]
+            print(f'Current page {current_page}')
+            print(f'Total pages {total_pages}')
+            print(f'Max results {max_results}')
+            for book in json_response["books"]:
+                s = SearchResult()
+                s.store_name = "Z-Library"
+                s.title = book["title"]
+                s.author = book["author"]
+                s.cover_url = book["cover"]
+                s.drm = 2
+                s.formats = f"https://z-lib.gl/eapi/book/{book["id"]}/{book["hash"]}/formats"
+                s.detail_item = f'{BASE_WEB_URL}{book["href"]}'
+                results.append(s)
+
+            payload = {
+                "message": query,
+                "order": "popular",
+                "languages[]": "null",
+                "extensions[]": "null",
+                "page":current_page+1
+            }
         except Exception as e:
-            logger.error(f"Error building search result: {e}")
-        if len(results) >= max_results:
-            break
+            logger.error(e)
 
-    return results[:max_results]
-
+    print(len(results))
+    return results
 
 def extract_indices(soup):
     elements = ['Author(s)', 'Year', 'Pages', 'Size', 'Ext', 'Mirrors']
