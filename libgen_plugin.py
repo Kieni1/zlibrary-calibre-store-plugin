@@ -39,7 +39,7 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(leve
 logger = logging.getLogger(__name__)
 
 
-def custom_browser(url: str, payload: dict=None) -> dict:
+def custom_browser(url: str, payload: dict = None) -> dict:
     data = None
     if payload is not None:
         data = urllib.parse.urlencode(payload).encode('utf-8')
@@ -51,6 +51,7 @@ def custom_browser(url: str, payload: dict=None) -> dict:
     response = browser.open(url, data=data).read()
     json_response = json.loads(response)
     return json_response
+
 
 #####################################################################
 # Plug-in base class
@@ -72,35 +73,24 @@ def search_libgen(query, max_results=10, timeout=60):
         "extensions[]": "null"
     }
 
-
     try:
         results_Zlib = []
-        json_response = custom_browser(zlibrary_api,payload)
+        json_response = custom_browser(zlibrary_api, payload)
         for book in json_response["books"]:
             s = SearchResult()
             s.store_name = "Z-Library"
             s.title = book["title"]
             s.author = book["author"]
-            s.detail_item = book["href"]
             s.cover_url = book["cover"]
-            s.formats = book["extension"]
-            formats_url= f"https://z-lib.gl/eapi/book/{book["id"]}/{book["hash"]}/formats"
+            s.drm = 2
+            s.formats = f"https://z-lib.gl/eapi/book/{book["id"]}/{book["hash"]}/formats"
+            s.detail_item = f'https://z-library.sk{book["href"]}'
 
-            print(1)
-            formats_json = custom_browser(formats_url)
-            print(2)
-            formats= {}
-            for format in formats_json["books"]:
-                formats[format["extension"]] = f"https://z-lib.gl/eapi/book/{format["id"]}/{format["hash"]}/file"
-            print(formats)
-            # Get download formats
-            s.downloads = formats
             results_Zlib.append(s)
         return results_Zlib
 
     except Exception as e:
         logger.error(e)
-
 
     print("asdf")
 
@@ -227,30 +217,13 @@ class LibgenStorePlugin(BasicStoreConfig, StorePlugin):
             d.exec_()
 
     @staticmethod
-    def get_details(search_result, retries=3):
-        s = search_result
-        br = browser(user_agent=USER_AGENT)
-        for attempt in range(retries):
-            try:
-                raw = br.open(s.detail_item).read()
-                break
-            except:
-                logger.info("server error, retrying load of " + s.detail_item)
-                # server error, retry after delay
-                time.sleep(1)
-
-        soup2 = BeautifulSoup(raw, "html5lib")
-        # Select the first <a> tag inside the div with id="download"
-        download_a = soup2.select_one('tr a')
-        if download_a:
-            download_url = download_a.get("href")
-        else:
-            # Handle the case where the download link is not found
-            download_url = None
-
-        new_base_url = urllib.parse.urlparse(s.detail_item).hostname
-
-        s.downloads[s.formats] = "https://" + new_base_url + "/" + download_url
+    def get_details(search_result: SearchResult, retries=3):
+        formats_json = custom_browser(search_result.formats)
+        formats = []
+        for format in formats_json["books"]:
+            format_extension = format["extension"]
+            formats.append(format_extension.upper())
+        search_result.formats = " ".join(formats)
 
     @staticmethod
     def search(query, max_results=10, timeout=60):
