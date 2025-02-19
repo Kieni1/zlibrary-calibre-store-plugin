@@ -2,20 +2,24 @@
 # License: GPLv3 Copyright: 2024, poochinski9
 from __future__ import absolute_import, division, print_function, unicode_literals
 
+import json
 import logging
 import re
 import sys
 import time
 import urllib.parse
+from urllib.robotparser import RobotFileParser
 
 from PyQt5.Qt import QUrl
 from bs4 import BeautifulSoup
 from calibre import browser, url_slash_cleaner
+from calibre.utils.browser import Browser
 from calibre.gui2 import open_url
 from calibre.gui2.store import StorePlugin
 from calibre.gui2.store.basic_config import BasicStoreConfig
 from calibre.gui2.store.search_result import SearchResult
 from calibre.gui2.store.web_store_dialog import WebStoreDialog
+import ssl
 
 BASE_URL = "https://libgen.gs"
 USER_AGENT = "Mozilla/5.0 (Windows NT 6.1; Trident/7.0; rv:11.0) like Gecko"
@@ -35,23 +39,76 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(leve
 logger = logging.getLogger(__name__)
 
 
+def custom_browser(url: str, payload: dict=None) -> dict:
+    data = None
+    if payload is not None:
+        data = urllib.parse.urlencode(payload).encode('utf-8')
+
+    browser = Browser()
+    browser.set_handle_robots(False)
+    browser.set_user_agent(USER_AGENT)
+    browser.set_current_header(header="content-type", value="application/x-www-form-urlencoded")
+    response = browser.open(url, data=data).read()
+    json_response = json.loads(response)
+    return json_response
+
 #####################################################################
 # Plug-in base class
 #####################################################################
 def search_libgen(query, max_results=10, timeout=60):
     res = "25" if max_results <= 25 else "50" if max_results <= 50 else "100"
     encoded_query = urllib.parse.quote(query)
-    search_url = f"{BASE_URL}/index.php?req={encoded_query}&columns[]=t&columns[]=a&columns[]=s&columns[]=y&columns[]=p&columns[]=i&objects[]=f&objects[]=e&objects[]=s&objects[]=a&objects[]=p&objects[]=w&topics[]=l&topics[]=c&topics[]=f&topics[]=a&topics[]=m&topics[]=r&topics[]=s&res={res}&filesuns=all&covers=on"
+    libgen_url = f"{BASE_URL}/index.php?req={encoded_query}&columns[]=t&columns[]=a&columns[]=s&columns[]=y&columns[]=p&columns[]=i&objects[]=f&objects[]=e&objects[]=s&objects[]=a&objects[]=p&objects[]=w&topics[]=l&topics[]=c&topics[]=f&topics[]=a&topics[]=m&topics[]=r&topics[]=s&res={res}&filesuns=all&covers=on"
+
+    zlibrary_url = f"https://z-library.sk/s/{query}?"
+
+    zlibrary_api = "https://z-lib.gl/eapi/book/search"
+
+    encoded_query = urllib.parse.quote(query)
+    payload = {
+        "message": query,
+        "order": "popular",
+        "languages[]": "null",
+        "extensions[]": "null"
+    }
+
+
+    try:
+        results_Zlib = []
+        json_response = custom_browser(zlibrary_api,payload)
+        for book in json_response["books"]:
+            s = SearchResult()
+            s.store_name = "Z-Library"
+            s.title = book["title"]
+            s.author = book["author"]
+            s.detail_item = book["href"]
+            s.cover_url = book["cover"]
+            s.formats = book["extension"]
+            formats_url= f"https://z-lib.gl/eapi/book/{book["id"]}/{book["hash"]}/formats"
+
+            print(1)
+            formats_json = custom_browser(formats_url)
+            print(2)
+            formats= {}
+            for format in formats_json["books"]:
+                formats[format["extension"]] = f"https://z-lib.gl/eapi/book/{format["id"]}/{format["hash"]}/file"
+            print(formats)
+            # Get download formats
+            s.downloads = formats
+            results_Zlib.append(s)
+        return results_Zlib
+
+    except Exception as e:
+        logger.error(e)
+
+
+    print("asdf")
 
     br = browser(user_agent=USER_AGENT)
-    raw = br.open(search_url).read()
+    raw = br.open(libgen_url).read()
     soup = BeautifulSoup(raw, "html5lib")
-
     extract_indices(soup)
-
-    # Find the rows that represent each book, and skip the first item which is table headers
     trs = soup.select('table[class="table table-striped"] > tbody > tr')
-
     # map the trs to search results, filter out items that dont have a title or author, and limit it to max_results size
     results = []
     for tr in trs:
@@ -199,6 +256,9 @@ class LibgenStorePlugin(BasicStoreConfig, StorePlugin):
     def search(query, max_results=10, timeout=60):
         for result in search_libgen(query, max_results=max_results, timeout=timeout):
             yield result
+
+    def config_widget(self):
+        pass
 
 
 if __name__ == "__main__":
