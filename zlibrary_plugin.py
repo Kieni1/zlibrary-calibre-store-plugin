@@ -69,8 +69,8 @@ def search_libgen(query, max_results:int, timeout=60):
                 s.author = book["author"]
                 s.cover_url = book["cover"]
                 s.drm = 2
-                s.formats = f"https://z-lib.gl/eapi/book/{book["id"]}/{book["hash"]}/formats"
-                s.detail_item = f'{BASE_WEB_URL}{book["href"]}'
+                s.formats = f"https://z-lib.gl/eapi/book/{book['id']}/{book['hash']}/formats"
+                s.detail_item = f"{BASE_WEB_URL}{book['href']}"
                 results.append(s)
 
             payload = {
