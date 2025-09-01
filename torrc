@@ -1,0 +1,17 @@
+# Listen locally for SOCKS connections (default 9050)
+SocksPort 127.0.0.1:9050
+
+# Avoid binding to other interfaces
+SocksBindAddress 127.0.0.1
+
+# Don't write state outside the plugin folder
+DataDirectory ./data
+
+# Log notices and errors to a file
+Log notice file ./tor.log
+
+# Keep it lightweight (no unnecessary features)
+ClientOnly 1
+
+# Avoid using IPv6 if you don’t need it
+ClientUseIPv6 0
