@@ -4,6 +4,8 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 import json
 import logging
+import os
+import subprocess
 import sys
 import urllib.parse
 
@@ -21,30 +23,70 @@ USER_AGENT = "Mozilla/5.0 (Windows NT 6.1; Trident/7.0; rv:11.0) like Gecko"
 BASE_API_URL = "https://z-lib.gl/eapi"
 BASE_WEB_URL = "https://z-library.sk"
 
-
-# Configure logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Logging
+logging.basicConfig(level=logging.DEBUG,
+                    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
+#####################################################################
+# Tor bootstrap
+#####################################################################
+def start_tor():
+    """
+    Start Tor from the local static bundle if it's not already running.
+    Expects `tor` binary and optional `torrc` in the same folder as this script.
+    """
+    tor_dir = os.path.dirname(os.path.abspath(__file__))
+    tor_binary = os.path.join(tor_dir, "tor")
+    torrc = os.path.join(tor_dir, "torrc")
+
+    if not os.path.exists(tor_binary):
+        logger.error("Tor binary not found in plugin directory.")
+        return
+
+    try:
+        # Spawn tor in background, let it daemonize
+        cmd = [tor_binary]
+        if os.path.exists(torrc):
+            cmd.extend(["-f", torrc])
+        subprocess.Popen(cmd,
+                         stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+        logger.info("Tor process started.")
+    except Exception as e:
+        logger.error(f"Could not start Tor: {e}")
+
+
+#####################################################################
+# Networking (through Tor)
+#####################################################################
 def api_request(url: str, payload: dict = None) -> dict:
     data = None
     if payload is not None:
-        data = urllib.parse.urlencode(payload).encode('utf-8')
+        data = urllib.parse.urlencode(payload).encode("utf-8")
 
     browser = Browser()
     browser.set_handle_robots(False)
     browser.set_user_agent(USER_AGENT)
-    browser.set_current_header(header="content-type", value="application/x-www-form-urlencoded")
+    browser.set_current_header(header="content-type",
+                               value="application/x-www-form-urlencoded")
+
+    # Force traffic through Tor SOCKS proxy
+    browser.set_proxies({
+        "http": "socks5://127.0.0.1:9050",
+        "https": "socks5://127.0.0.1:9050",
+    })
+
     response = browser.open(url, data=data).read()
     json_response = json.loads(response)
     return json_response
 
 
 #####################################################################
-# Plug-in base class
+# Store search
 #####################################################################
-def search_libgen(query, max_results:int, timeout=60):
+def search_libgen(query, max_results: int, timeout=60):
     results = []
     total_pages = 1
     current_page = 1
@@ -56,12 +98,12 @@ def search_libgen(query, max_results:int, timeout=60):
         "extensions[]": "null"
     }
 
-    while current_page<=total_pages and len(results)<max_results:
+    while current_page <= total_pages and len(results) < max_results:
         try:
-            url = f'{BASE_API_URL}/book/search'
+            url = f"{BASE_API_URL}/book/search"
             json_response = api_request(url, payload)
-            current_page=json_response["pagination"]["current"]
-            total_pages=json_response["pagination"]["total_pages"]
+            current_page = json_response["pagination"]["current"]
+            total_pages = json_response["pagination"]["total_pages"]
             for book in json_response["books"]:
                 s = SearchResult()
                 s.store_name = "Z-Library"
@@ -78,13 +120,17 @@ def search_libgen(query, max_results:int, timeout=60):
                 "order": "popular",
                 "languages[]": "null",
                 "extensions[]": "null",
-                "page":current_page+1
+                "page": current_page + 1
             }
         except Exception as e:
             logger.error(e)
 
     return results
 
+
+#####################################################################
+# Store plugin
+#####################################################################
 class ZLibraryStorePlugin(BasicStoreConfig, StorePlugin):
     def open(self, parent=None, detail_item=None, external=False):
         url = BASE_WEB_URL
@@ -115,7 +161,11 @@ class ZLibraryStorePlugin(BasicStoreConfig, StorePlugin):
         pass
 
 
+#####################################################################
+# CLI testing
+#####################################################################
 if __name__ == "__main__":
+    start_tor()
     query_string = " ".join(sys.argv[1:])
-    for result in search_libgen(bytes(" ".join(sys.argv[1:]), "utf-8")):
+    for result in search_libgen(query_string):
         print(result)
